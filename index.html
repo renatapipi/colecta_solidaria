@@ -68,15 +68,21 @@ footer{text-align:center;padding:30px;color:#777}
 <div class="admin-panel" id="adminPanel">
   <div id="loginBox">
     <b>Acceso administrador</b>
-    <input id="adminPass" type="password" placeholder="Contraseña">
+    <input id="adminEmail" type="email" value="mhmartinherrera@gmail.com" readonly>
+    <input id="adminPass" type="password" placeholder="Contraseña de Supabase">
     <button class="secondary" onclick="adminLogin()">Ingresar</button>
+    <div class="admin-msg" id="loginMsg"></div>
   </div>
   <div id="metaBox" style="display:none">
+    <b>Registrar dinero recibido</b>
+    <input id="donationAmount" type="number" min="1" step="100" placeholder="Ej.: 50000">
+    <button class="primary" onclick="addDonation()">Agregar al recaudado</button>
+    <hr style="border:0;border-top:1px solid #eee;margin:16px 0">
     <b>Modificar meta</b>
     <input id="newMeta" type="number" min="1" step="1000" placeholder="Ej.: 5000000">
     <button class="primary" onclick="saveMeta()">Guardar meta</button>
     <button class="secondary" onclick="adminLogout()">Cerrar sesión</button>
-    <div class="admin-msg">La meta queda guardada en este navegador. En una página estática sin base de datos no puede cambiarse para todos los visitantes automáticamente.</div>
+    <div class="admin-msg" id="adminMsg">Los cambios se guardan online y serán visibles para todos.</div>
   </div>
 </div>
 
@@ -102,9 +108,11 @@ footer{text-align:center;padding:30px;color:#777}
 <footer>Todos por María · Página solidaria</footer>
 
 <script>
-let META=Number(localStorage.getItem("maria_meta")||5000000);
-const RECAUDADO=0;
-const money=n=>"$"+Math.round(n).toLocaleString("es-AR");
+const SUPABASE_URL="https://rbcpcbfyacuabdfdvfle.supabase.co";
+const SUPABASE_KEY="sb_publishable_2FixJyV6wDadsWph5-GRig_w7qWwAYi";
+let META=5000000, RECAUDADO=0, accessToken=null;
+const money=n=>"$"+Math.round(Number(n)||0).toLocaleString("es-AR");
+
 function renderProgress(){
  const pct=Math.min(100,META?RECAUDADO/META*100:0);
  document.getElementById("raised").textContent=money(RECAUDADO);
@@ -113,15 +121,62 @@ function renderProgress(){
  document.getElementById("pct").textContent=pct.toFixed(1).replace(".0","")+"%";
  document.getElementById("fill").style.width=pct+"%";
 }
-renderProgress();
-const ADMIN_PASSWORD="maria2026";
-function toggleAdmin(){const p=document.getElementById("adminPanel");p.style.display=p.style.display==="block"?"none":"block"}
-function adminLogin(){
- if(document.getElementById("adminPass").value===ADMIN_PASSWORD){document.getElementById("loginBox").style.display="none";document.getElementById("metaBox").style.display="block";document.getElementById("newMeta").value=META;}
- else alert("Contraseña incorrecta");
+
+async function loadProgress(){
+ try{
+  const r=await fetch(SUPABASE_URL+"/rest/v1/colecta_maria?id=eq.1&select=recaudado,meta",{headers:{apikey:SUPABASE_KEY}});
+  if(!r.ok) throw new Error();
+  const rows=await r.json();
+  if(rows[0]){RECAUDADO=Number(rows[0].recaudado)||0;META=Number(rows[0].meta)||5000000;renderProgress();}
+ }catch(e){console.warn("No se pudo actualizar el contador");}
 }
-function saveMeta(){const v=Number(document.getElementById("newMeta").value);if(!v||v<=0){alert("Ingresá una meta válida");return;}META=v;localStorage.setItem("maria_meta",String(v));renderProgress();alert("Meta actualizada en este dispositivo");}
-function adminLogout(){document.getElementById("adminPass").value="";document.getElementById("loginBox").style.display="block";document.getElementById("metaBox").style.display="none";}
+renderProgress(); loadProgress();
+
+function toggleAdmin(){const p=document.getElementById("adminPanel");p.style.display=p.style.display==="block"?"none":"block"}
+
+async function adminLogin(){
+ const email=document.getElementById("adminEmail").value;
+ const password=document.getElementById("adminPass").value;
+ const msg=document.getElementById("loginMsg"); msg.textContent="Ingresando…";
+ try{
+  const r=await fetch(SUPABASE_URL+"/auth/v1/token?grant_type=password",{method:"POST",headers:{"Content-Type":"application/json",apikey:SUPABASE_KEY},body:JSON.stringify({email,password})});
+  const data=await r.json();
+  if(!r.ok||!data.access_token) throw new Error(data.error_description||data.msg||"Datos incorrectos");
+  accessToken=data.access_token;
+  document.getElementById("loginBox").style.display="none";
+  document.getElementById("metaBox").style.display="block";
+  document.getElementById("newMeta").value=META;
+  msg.textContent="";
+ }catch(e){msg.textContent="No se pudo ingresar. Revise la contraseña.";}
+}
+
+async function patchProgress(values){
+ const r=await fetch(SUPABASE_URL+"/rest/v1/colecta_maria?id=eq.1",{method:"PATCH",headers:{"Content-Type":"application/json",apikey:SUPABASE_KEY,Authorization:"Bearer "+accessToken,Prefer:"return=representation"},body:JSON.stringify({...values,actualizado:new Date().toISOString()})});
+ if(!r.ok) throw new Error(await r.text());
+ const rows=await r.json(); if(rows[0]){RECAUDADO=Number(rows[0].recaudado);META=Number(rows[0].meta);renderProgress();}
+}
+
+async function addDonation(){
+ const el=document.getElementById("donationAmount"), v=Number(el.value), msg=document.getElementById("adminMsg");
+ if(!v||v<=0){msg.textContent="Ingrese un monto válido.";return;}
+ msg.textContent="Guardando…";
+ try{
+  await loadProgress();
+  await patchProgress({recaudado:RECAUDADO+Math.round(v)});
+  el.value=""; msg.textContent="Monto agregado. El nuevo saldo ya es visible para todos.";
+ }catch(e){msg.textContent="No se pudo guardar. Vuelva a iniciar sesión o revise Supabase.";}
+}
+
+async function saveMeta(){
+ const v=Number(document.getElementById("newMeta").value), msg=document.getElementById("adminMsg");
+ if(!v||v<=0){msg.textContent="Ingrese una meta válida.";return;}
+ msg.textContent="Guardando…";
+ try{await patchProgress({meta:Math.round(v)});msg.textContent="Meta actualizada para todos.";}
+ catch(e){msg.textContent="No se pudo guardar la meta.";}
+}
+
+function adminLogout(){accessToken=null;document.getElementById("adminPass").value="";document.getElementById("loginBox").style.display="block";document.getElementById("metaBox").style.display="none";}
+
 async function copyText(t,msg){try{await navigator.clipboard.writeText(t);alert(msg)}catch(e){prompt("Copiá este dato:",t)}}
 async function sharePage(){const data={title:"Todos por María",text:"Ayudemos a María a continuar con su tratamiento y recuperación. Cada aporte o difusión suma.",url:location.href};
 if(navigator.share){try{await navigator.share(data)}catch(e){}}else{copyText(location.href,"Enlace copiado")}}
