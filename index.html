@@ -68,8 +68,8 @@ footer{text-align:center;padding:30px;color:#777}
 <div class="admin-panel" id="adminPanel">
   <div id="loginBox">
     <b>Acceso administrador</b>
-    <input id="adminEmail" type="email" value="mhmartinherrera@gmail.com" readonly>
-    <input id="adminPass" type="password" placeholder="Contraseña de Supabase">
+    <input id="adminUser" type="text" value="maria" placeholder="Usuario" autocomplete="username">
+    <input id="adminPass" type="password" placeholder="Contraseña" autocomplete="current-password">
     <button class="secondary" onclick="adminLogin()">Ingresar</button>
     <div class="admin-msg" id="loginMsg"></div>
   </div>
@@ -135,9 +135,12 @@ renderProgress(); loadProgress();
 function toggleAdmin(){const p=document.getElementById("adminPanel");p.style.display=p.style.display==="block"?"none":"block"}
 
 async function adminLogin(){
- const email=document.getElementById("adminEmail").value;
+ const usuario=document.getElementById("adminUser").value.trim().toLowerCase();
+ const email=usuario==="maria"?"mhmartinherrera@gmail.com":"";
  const password=document.getElementById("adminPass").value;
- const msg=document.getElementById("loginMsg"); msg.textContent="Ingresando…";
+ const msg=document.getElementById("loginMsg");
+ if(!email){msg.textContent="Usuario incorrecto.";return;}
+ msg.textContent="Ingresando…";
  try{
   const r=await fetch(SUPABASE_URL+"/auth/v1/token?grant_type=password",{method:"POST",headers:{"Content-Type":"application/json",apikey:SUPABASE_KEY},body:JSON.stringify({email,password})});
   const data=await r.json();
