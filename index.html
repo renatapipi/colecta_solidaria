@@ -85,6 +85,7 @@ footer{text-align:center;padding:30px;color:#777}
     <b>Modificar meta</b>
     <input id="newMeta" type="number" min="1" step="1000" placeholder="Ej.: 5000000">
     <button class="primary" onclick="saveMeta()">Guardar meta</button>
+    <button class="secondary" onclick="resetCounter()">Poner contador en $0</button>
     <button class="secondary" onclick="adminLogout()">Cerrar sesión</button>
     <div class="admin-msg" id="adminMsg">Cada ingreso queda registrado con fecha y hora. Los cambios serán visibles para todos.</div>
   </div>
@@ -196,6 +197,19 @@ async function saveMeta(){
  msg.textContent="Guardando…";
  try{await patchProgress({meta:Math.round(v)});msg.textContent="Meta actualizada para todos.";}
  catch(e){msg.textContent="No se pudo guardar la meta.";}
+}
+
+async function resetCounter(){
+ const msg=document.getElementById("adminMsg");
+ if(!confirm("¿Seguro que quiere poner en cero el total recaudado y borrar los ingresos registrados?")) return;
+ msg.textContent="Poniendo contador en cero…";
+ try{
+  const del=await fetch(SUPABASE_URL+"/rest/v1/colecta_movimientos?id=gt.0",{method:"DELETE",headers:{apikey:SUPABASE_KEY,Authorization:"Bearer "+accessToken}});
+  if(!del.ok) throw new Error(await del.text());
+  await patchProgress({recaudado:0});
+  HOY=0; SEMANA=0; RECAUDADO=0; renderProgress();
+  msg.textContent="Contador puesto en $0.";
+ }catch(e){msg.textContent="No se pudo poner en cero. Puede faltar permiso para borrar movimientos en Supabase.";}
 }
 
 function adminLogout(){accessToken=null;document.getElementById("adminPass").value="";document.getElementById("loginBox").style.display="block";document.getElementById("metaBox").style.display="none";}
