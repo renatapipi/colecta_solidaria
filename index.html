@@ -62,6 +62,10 @@ footer{text-align:center;padding:30px;color:#777}
 <div>recaudados de <b id="goal">$5.000.000</b></div>
 <div class="bar"><div class="fill" id="fill"></div></div>
 <div><b id="pct">0%</b> · Faltan <b id="remaining">$5.000.000</b></div>
+<div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:14px">
+  <div><span class="small">Recibido hoy</span><br><b id="todayRaised">$0</b></div>
+  <div><span class="small">Esta semana</span><br><b id="weekRaised">$0</b></div>
+</div>
 
 </section>
 <button class="admin-toggle" onclick="toggleAdmin()">🔐 Administración</button>
@@ -82,7 +86,7 @@ footer{text-align:center;padding:30px;color:#777}
     <input id="newMeta" type="number" min="1" step="1000" placeholder="Ej.: 5000000">
     <button class="primary" onclick="saveMeta()">Guardar meta</button>
     <button class="secondary" onclick="adminLogout()">Cerrar sesión</button>
-    <div class="admin-msg" id="adminMsg">Los cambios se guardan online y serán visibles para todos.</div>
+    <div class="admin-msg" id="adminMsg">Cada ingreso queda registrado con fecha y hora. Los cambios serán visibles para todos.</div>
   </div>
 </div>
 
@@ -110,7 +114,7 @@ footer{text-align:center;padding:30px;color:#777}
 <script>
 const SUPABASE_URL="https://rbcpcbfyacuabdfdvfle.supabase.co";
 const SUPABASE_KEY="sb_publishable_2FixJyV6wDadsWph5-GRig_w7qWwAYi";
-let META=5000000, RECAUDADO=0, accessToken=null;
+let META=5000000, RECAUDADO=0, HOY=0, SEMANA=0, accessToken=null;
 const money=n=>"$"+Math.round(Number(n)||0).toLocaleString("es-AR");
 
 function renderProgress(){
@@ -120,6 +124,8 @@ function renderProgress(){
  document.getElementById("remaining").textContent=money(Math.max(0,META-RECAUDADO));
  document.getElementById("pct").textContent=pct.toFixed(1).replace(".0","")+"%";
  document.getElementById("fill").style.width=pct+"%";
+ document.getElementById("todayRaised").textContent=money(HOY);
+ document.getElementById("weekRaised").textContent=money(SEMANA);
 }
 
 async function loadProgress(){
@@ -127,7 +133,17 @@ async function loadProgress(){
   const r=await fetch(SUPABASE_URL+"/rest/v1/colecta_maria?id=eq.1&select=recaudado,meta",{headers:{apikey:SUPABASE_KEY}});
   if(!r.ok) throw new Error();
   const rows=await r.json();
-  if(rows[0]){RECAUDADO=Number(rows[0].recaudado)||0;META=Number(rows[0].meta)||5000000;renderProgress();}
+  if(rows[0]){RECAUDADO=Number(rows[0].recaudado)||0;META=Number(rows[0].meta)||5000000;}
+  const now=new Date();
+  const startToday=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  const day=(now.getDay()+6)%7;
+  const startWeek=new Date(now.getFullYear(),now.getMonth(),now.getDate()-day);
+  const m=await fetch(SUPABASE_URL+"/rest/v1/colecta_movimientos?select=monto,creado_en&creado_en=gte."+encodeURIComponent(startWeek.toISOString()),{headers:{apikey:SUPABASE_KEY}});
+  if(m.ok){
+    const movs=await m.json(); HOY=0; SEMANA=0;
+    movs.forEach(x=>{const d=new Date(x.creado_en), v=Number(x.monto)||0; SEMANA+=v; if(d>=startToday) HOY+=v;});
+  }
+  renderProgress();
  }catch(e){console.warn("No se pudo actualizar el contador");}
 }
 renderProgress(); loadProgress();
@@ -165,8 +181,12 @@ async function addDonation(){
  msg.textContent="Guardando…";
  try{
   await loadProgress();
-  await patchProgress({recaudado:RECAUDADO+Math.round(v)});
-  el.value=""; msg.textContent="Monto agregado. El nuevo saldo ya es visible para todos.";
+  const monto=Math.round(v);
+  const ins=await fetch(SUPABASE_URL+"/rest/v1/colecta_movimientos",{method:"POST",headers:{"Content-Type":"application/json",apikey:SUPABASE_KEY,Authorization:"Bearer "+accessToken,Prefer:"return=minimal"},body:JSON.stringify({monto:monto})});
+  if(!ins.ok) throw new Error(await ins.text());
+  await patchProgress({recaudado:RECAUDADO+monto});
+  await loadProgress();
+  el.value=""; msg.textContent="Monto agregado. Se actualizó el total, el día y la semana.";
  }catch(e){msg.textContent="No se pudo guardar. Vuelva a iniciar sesión o revise Supabase.";}
 }
 
